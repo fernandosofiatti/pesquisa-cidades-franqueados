@@ -116,7 +116,7 @@ if len(clientes):
             "<br>ID_Whitelabel: " + clientes["id_whitelabel"].astype(str) +
             "<br>" + clientes["cidade"] + "/" + clientes["uf"]
         ),
-        name="Clientes (whitelabel)",
+        name="Clientes GOV",
         hoverinfo="text",
     ))
 
@@ -174,7 +174,7 @@ with col_result:
         st.dataframe(tabela, hide_index=True, use_container_width=True)
 
 if len(clientes):
-    with st.expander(f"Clientes (whitelabel) mapeados — {len(clientes)} cidades destacadas em laranja no mapa"):
+    with st.expander(f"Clientes (GOV) mapeados — {len(clientes)} cidades destacadas em laranja no mapa"):
         tabela_clientes = clientes[[
             "id_whitelabel", "franqueado_cliente", "cidade", "uf", "codigo_encontrado",
         ]].rename(columns={
