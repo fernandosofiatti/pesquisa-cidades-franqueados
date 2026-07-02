@@ -24,6 +24,7 @@ ALIASES = {
 
 BASE_DIR = Path(__file__).parent
 XLSX_PATH = BASE_DIR / "Cidades_Franqueados.xlsx"
+CLIENTES_XLSX_PATH = BASE_DIR / "nome_clientes.xlsx"
 IBGE_CSV = BASE_DIR / "data" / "municipios_ibge.csv"
 DB_PATH = BASE_DIR / "data" / "franqueados.db"
 
@@ -153,6 +154,47 @@ def resolve_entry(name: str, uf_hint, by_uf_name, by_name, norms_by_uf):
     return []
 
 
+def process_clientes(conn, codigos_franqueados, by_uf_name, by_name, norms_by_uf):
+    """Le nome_clientes.xlsx, casa ID_Whitelabel com Codigo da plataforma e geocodifica a cidade."""
+    conn.execute("""
+        CREATE TABLE clientes (
+            id_whitelabel INTEGER,
+            franqueado_cliente TEXT,
+            cidade TEXT,
+            uf TEXT,
+            latitude REAL,
+            longitude REAL,
+            codigo_encontrado INTEGER
+        )
+    """)
+    if not CLIENTES_XLSX_PATH.exists():
+        conn.commit()
+        return 0, 0, []
+
+    df = pd.read_excel(CLIENTES_XLSX_PATH)
+    df.columns = ["id_whitelabel", "cidade", "uf", "franqueado_cliente"]
+    df = df.dropna(subset=["id_whitelabel"])
+    df["id_whitelabel"] = df["id_whitelabel"].astype(int)
+
+    nao_casadas = []
+    encontrados = 0
+    for row in df.itertuples(index=False):
+        hit = lookup_city(row.cidade, row.uf, by_uf_name, by_name, norms_by_uf)
+        if not hit:
+            nao_casadas.append((row.id_whitelabel, row.franqueado_cliente, row.cidade, row.uf))
+            continue
+        nome_oficial, uf, lat, lon = hit
+        codigo_encontrado = row.id_whitelabel in codigos_franqueados
+        if codigo_encontrado:
+            encontrados += 1
+        conn.execute(
+            "INSERT INTO clientes VALUES (?,?,?,?,?,?,?)",
+            (row.id_whitelabel, row.franqueado_cliente, nome_oficial, uf, lat, lon, int(codigo_encontrado)),
+        )
+    conn.commit()
+    return len(df), encontrados, nao_casadas
+
+
 def main():
     by_uf_name, by_name, norms_by_uf = load_ibge()
 
@@ -229,7 +271,9 @@ def main():
                 (codigo, cidade, uf, lat, lon),
             )
             total_cidades += 1
-    conn.commit()
+    total_clientes, clientes_com_codigo, clientes_nao_casados = process_clientes(
+        conn, set(franqueados.keys()), by_uf_name, by_name, norms_by_uf,
+    )
     conn.close()
 
     print(f"Franqueados unicos: {len(franqueados)}")
@@ -239,6 +283,15 @@ def main():
         print("\n--- Revisar manualmente (codigo, franqueado, cidade, uf_hint) ---")
         for item in nao_casadas:
             print(item)
+
+    if total_clientes:
+        print(f"\nClientes (whitelabel) processados: {total_clientes}")
+        print(f"Clientes com ID_Whitelabel encontrado em Codigo da plataforma: {clientes_com_codigo}")
+        print(f"Clientes SEM Codigo da plataforma correspondente: {total_clientes - clientes_com_codigo}")
+        if clientes_nao_casados:
+            print(f"Cidades de clientes NAO casadas com o IBGE: {len(clientes_nao_casados)}")
+            for item in clientes_nao_casados:
+                print(item)
 
 
 if __name__ == "__main__":
