@@ -153,7 +153,7 @@ fig.update_layout(
 )
 
 with col_map:
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config={"scrollZoom": True})
 
 with col_result:
     if resultado is None:
