@@ -203,7 +203,7 @@ if busca:
             ))
 
 fig.update_layout(
-    mapbox=dict(style="carto-positron", center=center, zoom=zoom),
+    mapbox=dict(style="open-street-map", center=center, zoom=zoom),
     height=650, margin=dict(l=0, r=0, t=0, b=0), legend=dict(orientation="h"),
 )
 
