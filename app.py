@@ -15,6 +15,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+from streamlit_searchbox import st_searchbox
 
 OSRM_TABLE_URL = "https://router.project-osrm.org/table/v1/driving/{coords}"
 OSRM_ROUTE_URL = "https://router.project-osrm.org/route/v1/driving/{coords}"
@@ -116,21 +117,21 @@ st.caption(
     f"{len(clientes)} clientes (whitelabel) mapeados"
 )
 
-texto_busca = st.text_input(
-    "Digite o nome da cidade que deseja pesquisar", placeholder="Ex: Cascavel",
-).strip()
+def buscar_cidades(termo: str):
+    if not termo:
+        return []
+    norm = normalize(termo)
+    filtradas = cidades_ibge[cidades_ibge["norm"].str.contains(norm, regex=False)].sort_values("label")
+    return filtradas["label"].head(25).tolist()
 
-busca = ""
-if texto_busca:
-    termo = normalize(texto_busca)
-    filtradas = cidades_ibge[cidades_ibge["norm"].str.contains(termo, regex=False)].sort_values("label")
-    if filtradas.empty:
-        st.caption("Nenhuma cidade encontrada com esse nome.")
-    else:
-        rotulo = f"{len(filtradas)} cidade(s) encontrada(s) — selecione a certa"
-        busca = st.selectbox(rotulo, options=filtradas["label"].head(30).tolist())
-        if len(filtradas) > 30:
-            st.caption("Mostrando as 30 primeiras — digite mais letras para refinar.")
+
+busca = st_searchbox(
+    buscar_cidades,
+    label="Digite o nome da cidade que deseja pesquisar",
+    placeholder="Ex: Cascavel",
+    key="busca_cidade",
+    clear_on_submit=False,
+)
 
 top_n = st.slider("Quantidade de franqueados mais próximos a exibir", 3, 30, 10)
 
