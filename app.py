@@ -11,7 +11,10 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 import streamlit as st
+
+OSRM_TABLE_URL = "https://router.project-osrm.org/table/v1/driving/{coords}"
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "data" / "franqueados.db"
@@ -33,6 +36,23 @@ def haversine_km(lat1, lon1, lat2, lon2):
     dlat, dlon = lat2 - lat1, lon2 - lon1
     a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
     return 2 * 6371 * asin(sqrt(a))
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def route_distances_km(lat0, lon0, destinos: tuple[tuple[float, float], ...]):
+    """Distancia de rota (km) da origem ate cada destino via OSRM. Retorna None se o servico falhar."""
+    coords = f"{lon0},{lat0}" + ";" + ";".join(f"{lon},{lat}" for lat, lon in destinos)
+    url = OSRM_TABLE_URL.format(coords=coords) + "?sources=0&annotations=distance"
+    try:
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") != "Ok":
+            return None
+        distancias_m = data["distances"][0][1:]
+        return {destino: (d / 1000 if d is not None else None) for destino, d in zip(destinos, distancias_m)}
+    except (requests.RequestException, KeyError, IndexError, ValueError):
+        return None
 
 
 @st.cache_data
@@ -131,7 +151,22 @@ if busca:
     center, zoom = dict(lat=lat0, lon=lon0), 5.5
 
     fc = franqueado_cidades.copy()
-    fc["distancia_km"] = fc.apply(lambda r: haversine_km(lat0, lon0, r.latitude, r.longitude), axis=1)
+    destinos = tuple(dict.fromkeys(zip(fc["latitude"], fc["longitude"])))
+    rotas = route_distances_km(lat0, lon0, destinos)
+    if rotas is None:
+        st.warning(
+            "Não consegui calcular a distância de rota agora (serviço OSRM indisponível) — "
+            "mostrando distância em linha reta como alternativa.",
+            icon="⚠️",
+        )
+        fc["distancia_km"] = fc.apply(lambda r: haversine_km(lat0, lon0, r.latitude, r.longitude), axis=1)
+    else:
+        fc["distancia_km"] = fc.apply(
+            lambda r: rotas.get((r.latitude, r.longitude))
+            if rotas.get((r.latitude, r.longitude)) is not None
+            else haversine_km(lat0, lon0, r.latitude, r.longitude),
+            axis=1,
+        )
     mais_proxima = fc.loc[fc.groupby("codigo_plataforma")["distancia_km"].idxmin()]
     resultado = mais_proxima.merge(franqueados, on="codigo_plataforma").sort_values("distancia_km").head(top_n)
 
@@ -167,9 +202,9 @@ with col_result:
             "nome_franqueado": "Nome do Franqueado",
             "cidade": "Cidade mais próxima",
             "uf": "UF",
-            "distancia_km": "Distância (km)",
+            "distancia_km": "Distância de rota (km)",
         })
-        tabela["Distância (km)"] = tabela["Distância (km)"].round(1)
+        tabela["Distância de rota (km)"] = tabela["Distância de rota (km)"].round(1)
         tabela["Nome do Franqueado"] = tabela["Nome do Franqueado"].fillna("(nome não informado)")
         st.dataframe(tabela, hide_index=True, use_container_width=True)
 
