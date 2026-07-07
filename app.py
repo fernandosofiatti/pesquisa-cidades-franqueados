@@ -15,6 +15,7 @@ import requests
 import streamlit as st
 
 OSRM_TABLE_URL = "https://router.project-osrm.org/table/v1/driving/{coords}"
+OSRM_ROUTE_URL = "https://router.project-osrm.org/route/v1/driving/{coords}"
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "data" / "franqueados.db"
@@ -53,6 +54,23 @@ def route_distances_km(lat0, lon0, destinos: tuple[tuple[float, float], ...]):
         return {destino: (d / 1000 if d is not None else None) for destino, d in zip(destinos, distancias_m)}
     except (requests.RequestException, KeyError, IndexError, ValueError):
         return None
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def route_geometry(lat0, lon0, lat1, lon1):
+    """Lista de (lat,lon) do tracado real da rota via OSRM. Cai para linha reta se o servico falhar."""
+    coords = f"{lon0},{lat0};{lon1},{lat1}"
+    url = OSRM_ROUTE_URL.format(coords=coords) + "?overview=full&geometries=geojson"
+    reta = [(lat0, lon0), (lat1, lon1)]
+    try:
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") != "Ok":
+            return reta
+        return [(lat, lon) for lon, lat in data["routes"][0]["geometry"]["coordinates"]]
+    except (requests.RequestException, KeyError, IndexError, ValueError):
+        return reta
 
 
 @st.cache_data
@@ -175,12 +193,14 @@ if busca:
         marker=dict(size=16, color="red"),
         name=f"Pesquisa: {busca}", hoverinfo="text", text=[busca],
     ))
-    for _, r in resultado.iterrows():
-        fig.add_trace(go.Scattermapbox(
-            lon=[lon0, r.longitude], lat=[lat0, r.latitude],
-            mode="lines", line=dict(width=1.5, color="rgba(220,20,60,0.6)"),
-            showlegend=False, hoverinfo="skip",
-        ))
+    with st.spinner("Traçando rotas..."):
+        for _, r in resultado.iterrows():
+            traco = route_geometry(lat0, lon0, r.latitude, r.longitude)
+            fig.add_trace(go.Scattermapbox(
+                lon=[p[1] for p in traco], lat=[p[0] for p in traco],
+                mode="lines", line=dict(width=2, color="rgba(220,20,60,0.7)"),
+                showlegend=False, hoverinfo="skip",
+            ))
 
 fig.update_layout(
     mapbox=dict(style="carto-positron", center=center, zoom=zoom),
