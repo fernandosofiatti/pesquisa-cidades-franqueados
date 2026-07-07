@@ -6,6 +6,7 @@ Rodar com:
 """
 import json
 import sqlite3
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
@@ -31,6 +32,11 @@ UF_POR_CODIGO = {
 }
 
 st.set_page_config(page_title="Franqueados mais próximos", layout="wide")
+
+
+def normalize(text: str) -> str:
+    text = unicodedata.normalize("NFKD", str(text))
+    return "".join(c for c in text if not unicodedata.combining(c)).lower()
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -79,7 +85,8 @@ def load_cidades():
     df = pd.read_csv(IBGE_CSV)
     df["uf"] = df["codigo_uf"].map(UF_POR_CODIGO)
     df["label"] = df["nome"] + " - " + df["uf"]
-    return df[["nome", "uf", "latitude", "longitude", "label"]]
+    df["norm"] = df["label"].map(normalize)
+    return df[["nome", "uf", "latitude", "longitude", "label", "norm"]]
 
 
 @st.cache_data
@@ -109,12 +116,21 @@ st.caption(
     f"{len(clientes)} clientes (whitelabel) mapeados"
 )
 
-busca = st.selectbox(
-    "Digite/selecione a cidade que deseja pesquisar",
-    options=[""] + cidades_ibge["label"].tolist(),
-    index=0,
-    placeholder="Ex: Cascavel - PR",
-)
+texto_busca = st.text_input(
+    "Digite o nome da cidade que deseja pesquisar", placeholder="Ex: Cascavel",
+).strip()
+
+busca = ""
+if texto_busca:
+    termo = normalize(texto_busca)
+    filtradas = cidades_ibge[cidades_ibge["norm"].str.contains(termo, regex=False)].sort_values("label")
+    if filtradas.empty:
+        st.caption("Nenhuma cidade encontrada com esse nome.")
+    else:
+        rotulo = f"{len(filtradas)} cidade(s) encontrada(s) — selecione a certa"
+        busca = st.selectbox(rotulo, options=filtradas["label"].head(30).tolist())
+        if len(filtradas) > 30:
+            st.caption("Mostrando as 30 primeiras — digite mais letras para refinar.")
 
 top_n = st.slider("Quantidade de franqueados mais próximos a exibir", 3, 30, 10)
 
