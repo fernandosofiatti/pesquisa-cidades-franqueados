@@ -6,6 +6,7 @@ Rodar com:
 """
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
 
@@ -194,13 +195,17 @@ if busca:
         name=f"Pesquisa: {busca}", hoverinfo="text", text=[busca],
     ))
     with st.spinner("Traçando rotas..."):
-        for _, r in resultado.iterrows():
-            traco = route_geometry(lat0, lon0, r.latitude, r.longitude)
-            fig.add_trace(go.Scattermapbox(
-                lon=[p[1] for p in traco], lat=[p[0] for p in traco],
-                mode="lines", line=dict(width=2, color="rgba(220,20,60,0.7)"),
-                showlegend=False, hoverinfo="skip",
+        destinos_rota = list(zip(resultado["latitude"], resultado["longitude"]))
+        with ThreadPoolExecutor(max_workers=min(10, len(destinos_rota) or 1)) as executor:
+            tracos = list(executor.map(
+                lambda d: route_geometry(lat0, lon0, d[0], d[1]), destinos_rota,
             ))
+    for traco in tracos:
+        fig.add_trace(go.Scattermapbox(
+            lon=[p[1] for p in traco], lat=[p[0] for p in traco],
+            mode="lines", line=dict(width=2, color="rgba(220,20,60,0.7)"),
+            showlegend=False, hoverinfo="skip",
+        ))
 
 fig.update_layout(
     mapbox=dict(style="open-street-map", center=center, zoom=zoom),
